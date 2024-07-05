@@ -1,0 +1,98 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  branches:
+    include:
+    - dev**
+    - main
+
+pool:
+  vmImage: ubuntu-latest
+
+resources:
+  repositories:
+  - repository: AZDO_REPO_NAME
+    type: git
+    ref: main
+    name: '<AZDO_PROJECT_NAME>/<AZDO_REPO_NAME>'
+
+stages:
+- stage: CI
+  displayName: Terraform init and plan
+  jobs:
+  - job: build
+    displayName: build
+    steps:
+    - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@1
+      displayName: using latest terraform
+      inputs:
+        terraformVersion: 'latest'
+    - task: TerraformTaskV4@4
+      displayName: terraform init
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        backendServiceArm: '<AZDO_SERVICE_CONNECTION_NAME>'
+        backendAzureRmResourceGroupName: '<STORAGE_ACCOUNT_RG_NAME>'
+        backendAzureRmStorageAccountName: '<STORAGE_ACCOUNT_NAME>'
+        backendAzureRmContainerName: '<STORAGE_ACCOUNT_CONTAINER_NAME>'
+        backendAzureRmKey: '<TFSTATE_FILE_NAME>'
+    - task: TerraformTaskV4@4
+      displayName: terraform plan
+      inputs:
+        provider: 'azurerm'
+        command: 'plan'
+        commandOptions: '-out=plan.tfplan'
+        environmentServiceNameAzureRM: '<AZDO_SERVICE_CONNECTION_NAME>'
+    - script:    
+    ### Task needed by WIZ - Start Perform Scanning with WIZ
+    - task: AzureKeyVault@2
+      displayName: get wiz creds from keyvault
+      inputs:
+        azureSubscription: '<AZDO_SERVICE_CONNECTION_NAME>'
+        KeyVaultName: ''<AZURE_KEY_VAULT_NAME>''
+        SecretsFilter: ''<AZURE_KEY_VAULT_SECRET_NAME_1>,<AZURE_KEY_VAULT_SECRET_NAME_2>'
+        RunAsPreJob: false
+    - template: <REPO_FOLDER_NAME>/<YAML_FILE_NAME>@<REPO_FOLDER_NAME>
+    ### End Perform Scanning with WIZ
+    - task: PublishPipelineArtifact@1
+      displayName: publish pipeline artifact
+      inputs:
+        targetPath: $(Pipeline.Workspace)
+        artifactName: _terraform_zpa_app_connector
+
+
+- stage: CD
+  dependsOn: CI
+  condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+  displayName: Terraform apply
+  jobs: 
+  - deployment: deploy
+    displayName: deploy to production
+    environment: 'Production'
+    strategy:
+      runOnce:    #rolling, canary are the other strategies that are supported
+        deploy:
+          steps:
+          - task: DownloadPipelineArtifact@2
+            inputs:
+              artifact: _terraform_zpa_app_connector
+          - script: |
+              pwd
+              ls -al .
+              chmod -R +x $(System.DefaultWorkingDirectory)/
+            displayName: give execution permission for terraform
+          - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@1
+            displayName: using latest terraform
+            inputs:
+              terraformVersion: 'latest'
+          - task: TerraformTaskV4@4
+            displayName: terraform apply
+            inputs:
+              provider: 'azurerm'
+              command: 'apply'
+              commandOptions: 'plan.tfplan'
+              environmentServiceNameAzureRM: '<AZDO_SERVICE_CONNECTION_NAME>'
