@@ -24,14 +24,14 @@ data "azurerm_network_ddos_protection_plan" "<DDOS_PROTECTION_PLAN_NAME>" {
 ################################################################################
 # Get ZPA Provision Key from Key Vault
 ################################################################################
-data "azurerm_key_vault" "ops-qp-kv-01" {
+data "azurerm_key_vault" "kv01" {
   name         = var.azure_key_vault_name
   resource_group_name = var.azure_key_vault_resource_group_name
 }
 
 data "azurerm_key_vault_secret" "zpa_provision_key" {
   name         = var.azure_key_vault_zpa_provision_key_name
-  key_vault_id = data.azurerm_key_vault.ops-qp-kv-01.id
+  key_vault_id = data.azurerm_key_vault.kv01.id
 }
 
 ################################################################################
@@ -112,7 +112,7 @@ resource "azurerm_route_table" "udr-zpa-app-connector" {
   name                          = "udr-zpa-app-connector"
   location                      = data.azurerm_resource_group.<RG_ZSCALER_NAME>.location
   resource_group_name           = data.azurerm_resource_group.<RG_ZSCALER_NAME>.name
-  disable_bgp_route_propagation = false
+  bgp_route_propagation_enabled = true
   tags                          = var.global_tags
 
   route {
@@ -143,9 +143,9 @@ resource "azurerm_virtual_network" "<RG_ZSCALER_NAME>-vnet" {
   dns_servers         = ["10.10.10.5"]
 
   subnet {
-    name           = "zpa-app-connector"
-    address_prefix = "10.10.10.0/27"
-    security_group = azurerm_network_security_group.nsg-zpa-app-connector.id
+    name             = "zpa-app-connector"
+    address_prefixes = ["10.10.10.0/27"]
+    security_group   = azurerm_network_security_group.nsg-zpa-app-connector.id
   }
 
   ddos_protection_plan {
